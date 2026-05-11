@@ -1,0 +1,30 @@
+# ---System File---
+.DS_Store
+Thumbs.db
+
+# ---Embedded---
+.pio/
+.vscode/
+build/
+*.o
+*.bin
+*.elf
+
+# ---Mobile---
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+android/.gradle/
+android/local.properties
+android/app/release/
+ios/.generated/
+build/
+
+# ---Database---
+bridge/*.json
+*.log
+.env
+*.json
+**/build/
+sdkconfig
