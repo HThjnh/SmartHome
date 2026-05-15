@@ -34,12 +34,11 @@ class HistoryPage extends StatefulWidget {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // --- PHẦN 1: BIỂU ĐỒ NHIỆT ĐỘ (LẤY TỪ FIREBASE) ---
+            // --- Temp History(From Firebase) ---
             StreamBuilder(
-              stream: _tempRef.limitToLast(10).onValue, // Lấy 10 bản ghi mới nhất
+              stream: _tempRef.limitToLast(10).onValue, 
               builder: (context, AsyncSnapshot<DatabaseEvent> snapshot) {
                 if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
-                  // 1. Ép kiểu dữ liệu về Map một cách an toàn
                   final rawData = snapshot.data!.snapshot.value;
                   List<Map<String, dynamic>> tempHistory = [];
       
@@ -49,11 +48,11 @@ class HistoryPage extends StatefulWidget {
                         tempHistory.add({
                           "time": value['time']?.toString() ?? "--:--",
                           "value": double.tryParse(value['value'].toString()) ?? 0.0,
-                          "sortKey": key.toString(), // Dùng để sắp xếp
+                          "sortKey": key.toString(),
                         });
                       } 
                     });
-                    // Sắp xếp theo key để đúng thứ tự thời gian
+                    //Sort time
                     tempHistory.sort((a, b) => a['sortKey'].compareTo(b['sortKey']));
                   } 
                   else if (rawData is List) {
@@ -104,14 +103,14 @@ class HistoryPage extends StatefulWidget {
               },
             ),
 
-            // --- PHẦN 2: LỊCH SỬ MÁY BƠM (LẤY TỪ FIREBASE) ---
+            // --- Pump History (from Firebase) ---
             StreamBuilder(
               stream: _pumpRef.limitToLast(5).onValue,
               builder: (context, AsyncSnapshot<DatabaseEvent> snapshot) {
                 List<Map<String, String>> pumpHistory = [];
                 if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
                   Map<dynamic, dynamic> data = snapshot.data!.snapshot.value as Map;
-                  var sortedKeys = data.keys.toList()..sort((a, b) => b.compareTo(a)); // Đảo ngược để mới nhất lên đầu
+                  var sortedKeys = data.keys.toList()..sort((a, b) => b.compareTo(a));
                   
                   for (var key in sortedKeys) {
                     pumpHistory.add({
@@ -130,7 +129,6 @@ class HistoryPage extends StatefulWidget {
     );
   }
 
-  // Widget giao diện biểu đồ
   Widget _buildChartContainer(List tempHistory, List<FlSpot> allSpots, LineChartBarData lineBarData) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -218,7 +216,6 @@ class HistoryPage extends StatefulWidget {
     );
   }
 
-  // Widget giao diện lịch sử bơm
   Widget _buildPumpHistoryContainer(List<Map<String, String>> pumpHistory) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -255,7 +252,7 @@ class HistoryPage extends StatefulWidget {
                       child: const Icon(Icons.water_drop, color: Colors.blueAccent, size: 30),
                     ),
                     title: Text("Bật lúc: ${pumpHistory[index]['time']}", style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
-                    subtitle: Text("Thời gian chạy: ${pumpHistory[index]['duration']}", style: const TextStyle(fontSize: 14, color: Colors.black54)),
+                    subtitle: Text("Thời gian: ${pumpHistory[index]['duration']}", style: const TextStyle(fontSize: 14, color: Colors.black54)),
                   );
                 },
               ),

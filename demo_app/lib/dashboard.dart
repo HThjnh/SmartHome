@@ -47,7 +47,6 @@ class _DashboardPageState extends State<DashboardPage> {
     _dbRef.child('roof_pump_status').onValue.listen((event) {
       if (event.snapshot.value != null) {
         setState(() {
-          // Firebase lưu 1/0, ta chuyển thành chuỗi ON/OFF để hiện UI
           PumpStatus = event.snapshot.value.toString() == "1" ? "ON" : "OFF";
         });
       }

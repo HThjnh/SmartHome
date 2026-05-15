@@ -9,7 +9,7 @@ class MonitorPage extends StatefulWidget {
 }
 
 class _MonitorPageState extends State<MonitorPage> {
-  // Biến quản lý trạng thái bật/tắt của các thiết bị
+  //Device status management variable 
   bool isPumpOn = false;
   bool isAutoMode = false;
   bool isLivingLedOn = false;
@@ -22,7 +22,7 @@ class _MonitorPageState extends State<MonitorPage> {
   @override
   void initState() {
     super.initState();
-    _listenToFirebase(); // Lắng nghe trạng thái thực tế từ thiết bị báo về
+    _listenToFirebase(); //Listen to real status that device send to
   }
   void _listenToFirebase() {
     _dbRef.child('roof_pump_status').onValue.listen((event) {
@@ -61,45 +61,45 @@ class _MonitorPageState extends State<MonitorPage> {
   }
 
   // ==========================================
-  // CÁC HÀM GỬI LỆNH LÊN FIREBASE (KHI BẠN BẤM NÚT GẠT)
+  // Command function to Firebase(When User press the toggle switch)
   // ==========================================
   void _togglePump(bool val) async {
-  // 1. Lưu lại trạng thái bạn muốn hướng tới
+  // 1. Save status that User want to orient
     final PumpState = val;
     
     setState(() {
-      isPumpOn = PumpState;      // Gạt UI ngay lập tức
-      _lastPumpAction = DateTime.now(); // Đánh dấu thời điểm gạt
+      isPumpOn = PumpState;      //Switch UI
+      _lastPumpAction = DateTime.now(); //Mark the time of the switch
     });
 
     try {
-      // 2. Gửi lệnh lên Firebase
+      // 2. Send command to Firebase
       await _dbRef.child('pump_control').set(PumpState ? 1 : 0);
     } 
     catch (e) {
       print("Lỗi gửi lệnh: $e");
-      // Không gạt lại ở đây, cứ để người dùng gạt tiếp nếu họ muốn
+      //Do not switch here
     }
 
-    // 3. Kiểm tra ngầm sau 5 giây
+    // 3. Time limit
     Future.delayed(const Duration(seconds: 5), () async {
-      // Kiểm tra xem đây có phải là lệnh gạt cuối cùng không (tránh chồng chéo lệnh)
+      //Check if this is the last command(Avoid overlapping command)
       final now = DateTime.now();
       if (_lastPumpAction != null && now.difference(_lastPumpAction!).inSeconds >= 5) {
         
-        // Lấy trạng thái THỰC TẾ từ ESP (node roof_pump_status)
+        //Get real status from ESP
         final snapshot = await _dbRef.child('roof_pump_status').get();
         bool actualPumpStatus = snapshot.value.toString() == "1";
 
-        // Nếu trạng thái thực tế vẫn chưa khớp với nút gạt (ESP chưa phản hồi)
+        //If ESP do not reply
         if (mounted && actualPumpStatus != isPumpOn) {
           setState(() {
-            isPumpOn = actualPumpStatus; // Gạt ngược lại về trạng thái thật
+            isPumpOn = actualPumpStatus; //Switch to real status
           });
           _dbRef.child('pump_control').set(actualPumpStatus ? 1 : 0);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("Lỗi: Thiết bị không phản hồi!"),
+              content: Text("Lỗi: Thiết bị không phản hổi!"),
               backgroundColor: Colors.redAccent,
             ),
           );
@@ -122,18 +122,18 @@ class _MonitorPageState extends State<MonitorPage> {
       print("Lỗi gửi lệnh: $e");
     }
     Future.delayed(const Duration(seconds: 5), () async {
-      // Kiểm tra xem đây có phải là lệnh gạt cuối cùng không (tránh chồng chéo lệnh)
+      //Check if this is the last command(Avoid overlapping command)
       final now = DateTime.now();
       if (_lastModeState != null && now.difference(_lastModeState!).inSeconds >= 5) {
         
-        // Lấy trạng thái THỰC TẾ từ ESP (node roof_pump_status)
+        //Get real status from ESP
         final snapshot = await _dbRef.child('roof_system_mode').get();
         bool actualModeStatus = snapshot.value.toString() == "AUTO";
 
-        // Nếu trạng thái thực tế vẫn chưa khớp với nút gạt (ESP chưa phản hồi)
+        //If ESP do not reply
         if (mounted && actualModeStatus != isAutoMode) {
           setState(() {
-            isAutoMode = actualModeStatus; // Gạt ngược lại về trạng thái thật
+            isAutoMode = actualModeStatus; //Switch to real status
           });
           _dbRef.child('mode_control').set(actualModeStatus ? "AUTO" : "MANUAL");
           ScaffoldMessenger.of(context).showSnackBar(
@@ -158,7 +158,7 @@ class _MonitorPageState extends State<MonitorPage> {
       await _dbRef.child('led_${room}_control').set(val ? 1 : 0);
     }
     catch(e) {
-      print("Lỗi gửi lệnh LED $room: $e");
+      print("Lỗi gửi lệnh LED: $e");
     }
     Future.delayed(const Duration(seconds: 5), () async {
       final now = DateTime.now();
@@ -173,7 +173,7 @@ class _MonitorPageState extends State<MonitorPage> {
         else if (room == 'bed') currentUiState = isBedLedOn;
         if (mounted && actualLedStatus != currentUiState) {
           setState(() {
-            // Giật lùi UI của đúng cái phòng bị lỗi
+            //Switch UI of error room
             if (room == 'living') isLivingLedOn = actualLedStatus;
             else if (room == 'kitchen') isKitchenLedOn = actualLedStatus;
             else if (room == 'bed') isBedLedOn = actualLedStatus;
@@ -182,7 +182,7 @@ class _MonitorPageState extends State<MonitorPage> {
           
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("Lỗi: $room light didn't reply!"),
+              content: Text("Lỗi: Thiết bị không phản hồi!"),
               backgroundColor: Colors.redAccent,
             ),
           );
@@ -206,7 +206,7 @@ class _MonitorPageState extends State<MonitorPage> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // Khối điều khiển hệ thống máy bơm
+            //Pump control unit
             _buildControlGroup(
               title: "Hệ thống bơm",
               children: [
@@ -229,7 +229,7 @@ class _MonitorPageState extends State<MonitorPage> {
             ),
             const SizedBox(height: 20),
 
-            // Khối điều khiển hệ thống đèn chiếu sáng
+            //LED control unit
             _buildControlGroup(
               title: "Hệ thống LED",
               children: [
@@ -243,21 +243,21 @@ class _MonitorPageState extends State<MonitorPage> {
                 ),
                 const Divider(),
                 _buildControlItem(
-                  label: "Phòng bếp",
-                  icon: Icons.restaurant,
-                  iconColor: Colors.green,
-                  value: isKitchenLedOn,
-                  showBulb: true,
-                  onChanged: (val) => _toggleLed('kitchen', val),
-                ),
-                const Divider(),
-                _buildControlItem(
                   label: "Phòng ngủ",
                   icon: Icons.bed,
                   iconColor: Colors.purple,
                   value: isBedLedOn,
                   showBulb: true,
                   onChanged: (val) => _toggleLed('bed', val),
+                ),
+                const Divider(),
+                _buildControlItem(
+                  label: "Phòng bếp",
+                  icon: Icons.restaurant,
+                  iconColor: Colors.green,
+                  value: isKitchenLedOn,
+                  showBulb: true,
+                  onChanged: (val) => _toggleLed('kitchen', val),
                 ),
               ],
             ),
@@ -267,7 +267,6 @@ class _MonitorPageState extends State<MonitorPage> {
     );
   }
 
-  // Widget tạo khung bao trắng để nhóm các thiết bị cùng loại
   Widget _buildControlGroup(
       {required String title, required List<Widget> children}) {
     return Container(
@@ -296,7 +295,6 @@ class _MonitorPageState extends State<MonitorPage> {
     );
   }
 
-  // Widget tạo từng dòng điều khiển thiết bị kèm nút gạt (Switch)
   Widget _buildControlItem({
     required String label,
     required IconData icon,
@@ -321,8 +319,10 @@ class _MonitorPageState extends State<MonitorPage> {
       title: Row(
         children: [
           Expanded(
-              child: Text(label,
-                  style: const TextStyle(fontWeight: FontWeight.w500))),
+            child: Text(label,
+              style: const TextStyle(fontWeight: FontWeight.w500)
+              )
+          ),
           if (showBulb)
             Icon(
               Icons.lightbulb,
