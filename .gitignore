@@ -9,6 +9,7 @@ build/
 *.o
 *.bin
 *.elf
+security.h
 
 # ---Mobile---
 .dart_tool/
@@ -20,6 +21,9 @@ android/local.properties
 android/app/release/
 ios/.generated/
 build/
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+lib/firebase_options.dart
 
 # ---Database---
 bridge/*.json

@@ -5,10 +5,10 @@
 #include <string.h>
 #include "driver/gpio.h"
 #include "esp_log.h"
-#include "nvs_flash.h"         // Cho nvs_flash_init, nvs_flash_erase
-#include "esp_netif.h"         // Cho esp_netif_init
-#include "esp_event.h"         // Cho esp_event_loop_create_default
-
+#include "nvs_flash.h"         
+#include "esp_netif.h"         
+#include "esp_event.h"        
+        
 #include "wifi_sta.h"  
 #include "ds18b20.h"
 #include "water_sensor.h"
@@ -18,25 +18,23 @@
 #include "controlmode.h"
 
 //Cooling system
-
 #define RELAY_GPIO_PIN    18
 #define SWITCH_GPIO_CHECK GPIO_NUM_17
 #define GPIO_DS18B20_PIN  32
-
 //LED control system
 #define LED_LIVING  25
 #define LED_BED     26
 #define LED_KITCHEN 27
-#define PHYSICAL_LED_LIVING  35
-#define PHYSICAL_LED_BED     36
-#define PHYSICAL_LED_KITCHEN 39
-
+#define PHYSICAL_LED_LIVING  22
+#define PHYSICAL_LED_BED     21
+#define PHYSICAL_LED_KITCHEN 19
+//Init topic
 #define TOPIC_LED_CONTROL    "home/led/control"
 #define TOPIC_LED_STATUS     "home/led/status"
 #define TEMP_DASHBOARD       "home/roof/temp/dashboard"
 #define TEMP_GRAPH           "home/roof/temp/graph"
 
-static const uint64_t connection_timeout_ms = 2000;
+static const uint64_t connection_timeout_ms = 5000;
 static const char *TAG = "MAIN";
 
 esp_err_t esp_ret;
@@ -44,23 +42,32 @@ EventGroupHandle_t network_event_group;
 system_mode_t current_mode = SYSTEM_MODE_MANUAL;
 
 void init_feedback_system() {
-    gpio_config_t io_conf_in = {
-        .pin_bit_mask = (1ULL << SWITCH_GPIO_CHECK ) | (1ULL << PHYSICAL_LED_LIVING) | (1ULL << PHYSICAL_LED_BED) | (1ULL << PHYSICAL_LED_KITCHEN),
+    gpio_config_t io_conf_17 = {
+        .pin_bit_mask = (1ULL << SWITCH_GPIO_CHECK ),
         .mode = GPIO_MODE_INPUT,
         .pull_down_en = GPIO_PULLDOWN_DISABLE, 
-        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
         .intr_type = GPIO_INTR_ANYEDGE
     };
-    gpio_config(&io_conf_in);
+    gpio_config(&io_conf_17);
 
     gpio_config_t io_conf_out = {
         .pin_bit_mask = (1ULL << LED_LIVING) | (1ULL << LED_BED) | (1ULL << LED_KITCHEN),
-        .mode = GPIO_MODE_OUTPUT,
+        .mode = GPIO_MODE_INPUT_OUTPUT,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .intr_type = GPIO_INTR_DISABLE
     };
     gpio_config(&io_conf_out);
+
+    gpio_config_t io_conf_st = {
+        .pin_bit_mask = (1ULL << PHYSICAL_LED_LIVING) | (1ULL << PHYSICAL_LED_BED) | (1ULL << PHYSICAL_LED_KITCHEN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&io_conf_st);
 
     gpio_set_level(RELAY_GPIO_PIN, 0);
     gpio_set_level(LED_LIVING, 0);
@@ -73,51 +80,103 @@ void MonitorTask(void *pvParameters) {
     float temp;
     system_mode_t last_mode = -1;
     static bool wifi_log = false;
-    bool last_pump_physical_status = -1;
-    bool last_system_mode = -1;
+    bool last_pump_switch_status = -1;
+    bool last_living_led_switch_status = -1, last_bed_led_switch_status = -1, last_kitchen_led_switch_status = -1;
 
     static int graph_timer = 0, dashboard_timer = 0;
 
     while(1) {
+
         DS18B20_ERROR err = ds18b20_convert_and_read_temp(ds18b20_info, &temp);
         float water_level = water_sensor_read_level();
         bool running = is_running();
         //Read current physical status of pump
-        int current_pump_physical_status = gpio_get_level(SWITCH_GPIO_CHECK);
+        int current_pump_switch_status = gpio_get_level(SWITCH_GPIO_CHECK);
+        //Read current physical status of LED
+        int current_living_led_switch_status = gpio_get_level(PHYSICAL_LED_LIVING);
+        int current_bed_led_switch_status = gpio_get_level(PHYSICAL_LED_BED);
+        int current_kitchen_led_switch_status = gpio_get_level(PHYSICAL_LED_KITCHEN);
+
         EventBits_t bits = xEventGroupGetBits(network_event_group);
         bool connected = (bits & WIFI_STA_CONNECTED_BIT);    
 
-        ESP_LOGI(TAG, "Water: %.2f", water_level);
-        ESP_LOGE(TAG, "Temp: %.2f", temp);
-        //DS18B20 error
+        //DS18B20 
         if(err != DS18B20_OK) {
             if(running) auto_stop();
             ESP_LOGE(TAG, "Sensor Error");
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
-        
+        if (temp < 10.0f) continue;
+
         //Out of water
         if(water_level < 10.0f) {
             if(running) auto_stop();
-            ESP_LOGE(TAG, "STOP, OUT OF WATER!");
-            if(connected) publish_water_status(water_level);
+            ESP_LOGW(TAG, "STOP, OUT OF WATER!");
+            auto_stop();
+            if(connected) {
+                publish_water_status(water_level);
+                publish_pump_status(false);
+            }
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
-
+        //Send physical Pump status 
+        ESP_LOGI("DEBUG", "Pump Switch: %d, Running State: %d \n", current_pump_switch_status, running);
+        if(current_pump_switch_status != last_pump_switch_status) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            ESP_LOGW(TAG, "Check the Pump switch");
+            last_pump_switch_status = current_pump_switch_status; 
+            if(connected) publish_pump_status(current_pump_switch_status);
+            if (current_pump_switch_status == 0 && running == true) {
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                auto_stop();
+            }
+        }
+        //Send physical LED status
+        ESP_LOGI(TAG, "GPIO living(22) switch level: %d", gpio_get_level(PHYSICAL_LED_LIVING));
+        if(current_living_led_switch_status != last_living_led_switch_status) {
+            last_living_led_switch_status = current_living_led_switch_status;
+            if(connected) publish_led_status("LIVING", current_living_led_switch_status);
+            if(current_living_led_switch_status == 0 && running == true) {
+                ESP_LOGW(TAG, "Switch turned off LIVING LED");
+            }
+            else if(current_living_led_switch_status == 1 && running == true) {
+                ESP_LOGI(TAG, "Switch turned on LIVING LED");
+            }
+        }
+        ESP_LOGI(TAG, "GPIO bed(21) switch level: %d", gpio_get_level(PHYSICAL_LED_BED));
+        if(current_bed_led_switch_status != last_bed_led_switch_status) {
+            last_bed_led_switch_status = current_bed_led_switch_status;
+            if(connected) publish_led_status("BED", current_bed_led_switch_status);
+            if(current_bed_led_switch_status == 0 && running == true) {
+                ESP_LOGW(TAG, "Switch turned off BED LED");
+            }
+            else if(current_bed_led_switch_status == 1 && running == true) {
+                 ESP_LOGI(TAG, "Switch turned on BED LED");
+            }
+        }
+        ESP_LOGI(TAG, "GPIO kitchen(19) switch level: %d \n", gpio_get_level(PHYSICAL_LED_KITCHEN));
+        if(current_kitchen_led_switch_status != last_kitchen_led_switch_status) {
+            last_kitchen_led_switch_status = current_kitchen_led_switch_status;
+            if(connected) publish_led_status("KITCHEN", current_kitchen_led_switch_status);
+            if(current_kitchen_led_switch_status == 0 && running == true) {
+                ESP_LOGW(TAG, "Switch turned off KITCHEN LED");
+            }
+            else if(current_kitchen_led_switch_status == 1 && running == true) {
+                ESP_LOGI(TAG, "Switch turned on KITCHEN LED");
+            }
+        }
         //Connected to WiFi
         if(connected) {
             if(wifi_log) {
                 ESP_LOGI(TAG, "WiFi reconnected!");
                 wifi_log = false;
-                publish_system_mode(current_mode);
             }
             publish_water_status(water_level);
-
             //Temp Graph
             graph_timer++;
-            if(graph_timer >= 30) {
+            if(graph_timer >= 60) {
                 publish_temp(TEMP_GRAPH, temp);
                 graph_timer = 0;
                 ESP_LOGI(TAG, "Published temp to history");
@@ -128,15 +187,6 @@ void MonitorTask(void *pvParameters) {
                 publish_temp(TEMP_DASHBOARD, temp);
                 dashboard_timer = 0;
                 ESP_LOGI(TAG, "Published temp to dashboard");
-            }
-            //Send physical status 
-            if(current_pump_physical_status != last_pump_physical_status) {
-                publish_pump_status(current_pump_physical_status);
-                last_pump_physical_status = current_pump_physical_status;
-                
-                if (current_pump_physical_status == 0 && running == true) {
-                    ESP_LOGW(TAG, "Relay ON but Pump OFF (Check Rocker Switch!)");
-                }
             }
             //Manual Mode
             if(current_mode == SYSTEM_MODE_MANUAL) {
@@ -153,8 +203,8 @@ void MonitorTask(void *pvParameters) {
                     last_mode = SYSTEM_MODE_AUTO;
                     publish_system_mode(current_mode);
                 }
-                if (temp > 35.0f && !running) auto_start();
-                if (temp <= 30.0f && running) auto_stop();
+                if (temp > 40.0f && !running) auto_start();
+                if (temp <= 35.f && running) auto_stop();
             }
         }
         //Disconnected to WiFi
@@ -165,7 +215,7 @@ void MonitorTask(void *pvParameters) {
                 ESP_LOGW(TAG, "WiFi Disconnected");
                 wifi_log = true;
             }
-            if (temp > 35.0f) {
+            if(temp > 40.0f) {
                 if(last_mode != SYSTEM_MODE_AUTO || !running) {
                     ESP_LOGI(TAG, "TEMP > 35°C, START AUTO MODE");
                     auto_start();
@@ -173,22 +223,24 @@ void MonitorTask(void *pvParameters) {
                     current_mode = SYSTEM_MODE_MANUAL;
                 }
             }
-            else{
+            else if(temp <= 35.0f) {
                 if(running) {
                     ESP_LOGI(TAG, "TEMP < 35°C, STOP AUTO MODE");
                     auto_stop();
                 }
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        ESP_LOGI(TAG, "Done Task");
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        ESP_LOGI(TAG, "Done Task \n");
     }
 }
 
 void NetworkManagementTask(void *pvParameters) {
     ESP_LOGI("NET", "Waiting connect to WiFi...");
-    EventBits_t bits = xEventGroupWaitBits(network_event_group, WIFI_STA_CONNECTED_BIT | WIFI_STA_IPV4_OBTAINED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(connection_timeout_ms));
-
+    EventBits_t bits = xEventGroupWaitBits(network_event_group, 
+                                           WIFI_STA_CONNECTED_BIT | WIFI_STA_IPV4_OBTAINED_BIT,
+                                           pdFALSE, pdTRUE,
+                                           pdMS_TO_TICKS(connection_timeout_ms));
     if(bits & WIFI_STA_IPV4_OBTAINED_BIT) {
         ESP_LOGI("NET", "Wifi connected, initialize MQTT...");
         control_mode_init();
@@ -198,7 +250,6 @@ void NetworkManagementTask(void *pvParameters) {
 }
 
 void app_main(void) {
-
     // Initialize NVS: ESP32 WiFi driver uses NVS to store WiFi settings
     // Erase NVS partition if it's out of free space or new version
     esp_ret = nvs_flash_init();
@@ -209,21 +260,18 @@ void app_main(void) {
     if (esp_ret != ESP_OK) {
         ESP_LOGE(TAG, "Error (%d): Failed to initialize NVS", esp_ret);
     }
-
     // Initialize TCP/IP network interface (only call once in application)
     // Must be called prior to initializing the network driver!
     esp_ret = esp_netif_init();
     if (esp_ret != ESP_OK) {
         ESP_LOGE(TAG, "Error (%d): Failed to initialize network interface", esp_ret);
     }
-
     // Create default event loop that runs in the background
     // Must be running prior to initializing the network driver!
     esp_ret = esp_event_loop_create_default();
     if (esp_ret != ESP_OK) {
         ESP_LOGE(TAG, "Error (%d): Failed to create default event loop", esp_ret);
     }
-
     // Initialize event group
     network_event_group = xEventGroupCreate();
     /*DS18B20 Init*/
@@ -236,23 +284,14 @@ void app_main(void) {
         //Check error 
     ds18b20_use_crc(ds18b20_info, true); 
     ds18b20_set_resolution(ds18b20_info, DS18B20_RESOLUTION_12_BIT);
-    /*End of DS18B20 Init*/
-
     /*Water sensor Init*/
     water_sensor_init();
-    /*End of Water sensor Init*/
-
     /*Relay Init*/
     relay_init();
-    /*End of Relay init*/
-
     /*Pump Init*/
     pump_init();
-    /*End of pump init*/
-
     /*GPIO init*/
     init_feedback_system();
-
     /*Set up successfully*/
     ESP_LOGI(TAG, "Start...");
     xTaskCreate(MonitorTask, "MonitorTask", 8192, (void *)ds18b20_info, 5, NULL);
@@ -269,7 +308,11 @@ void app_main(void) {
     xTaskCreate(NetworkManagementTask, "NetTask", 4096, NULL, 3, NULL);
 
     ESP_LOGI(TAG, "Waiting for IP address...");
-    network_event_bits = xEventGroupWaitBits(network_event_group, WIFI_STA_IPV4_OBTAINED_BIT | WIFI_STA_IPV6_OBTAINED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(connection_timeout_ms));
+    network_event_bits = xEventGroupWaitBits(network_event_group, 
+                                             WIFI_STA_IPV4_OBTAINED_BIT | WIFI_STA_IPV6_OBTAINED_BIT, 
+                                             pdFALSE, 
+                                             pdTRUE, 
+                                             pdMS_TO_TICKS(connection_timeout_ms));
     if (network_event_bits & WIFI_STA_IPV4_OBTAINED_BIT) {
         ESP_LOGI(TAG, "Connected to IPv4 network");
     } 
@@ -279,5 +322,4 @@ void app_main(void) {
     else {
         ESP_LOGE(TAG, "Failed to obtain IP address");
     }
-
 }

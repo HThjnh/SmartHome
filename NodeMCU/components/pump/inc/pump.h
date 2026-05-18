@@ -1,6 +1,6 @@
 #ifndef PUMP_H
 #define PUMP_H
-
+#include "relay.h"
 #include <stdbool.h>
 
 void pump_init(void);

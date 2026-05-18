@@ -17,7 +17,6 @@ bool is_running() {
 }
 
 void vAutoModeTask(void *pvParameters) {
-    ESP_LOGI(TAG, "AUTO MODE TASK");
     /*Pumping*/
     pump_start();
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -28,6 +27,7 @@ void vAutoModeTask(void *pvParameters) {
 
     /*Checking*/
     while(1) {
+        ESP_LOGI(TAG, "GPIO 17 level: %d", gpio_get_level(GPIO_NUM_17));
         if(gpio_get_level(GPIO_NUM_17) == 0) {
             ESP_LOGW(TAG, "SWITCH TURNED OFF - STOPPING");
             break; 
@@ -56,6 +56,7 @@ void auto_start() {
         xTaskCreate(vAutoModeTask, "AutoModeTask", 2048, NULL, 5, &xAutoTaskHandle);
     }
 }
+
 void auto_stop() {
     if(xAutoTaskHandle != NULL) {
         vTaskDelete(xAutoTaskHandle);

@@ -3,6 +3,14 @@ import firebase_admin
 from firebase_admin import credentials, db
 import json
 import time
+import os 
+import logging
+from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("BRIDGE")
+
+load_dotenv()
 
 initialized_listeners = {
     'pump': False,
@@ -17,10 +25,14 @@ last_pump = None
 start_pump_time = None
 current_log_id = None
 
-cred = credentials.Certificate("ce232-smarthome-firebase-adminsdk-fbsvc-408002f910.json")
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://ce232-smarthome-default-rtdb.asia-southeast1.firebasedatabase.app/'
-})
+try:
+    cred = credentials.Certificate("serviceAccountKey.json")
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': os.getenv("FIREBASE_DB_URL")
+    })
+    logger.info("Firebase initialized successfully.")
+except Exception as e:
+    logger.info(f"Failed to initialize Firebase: {e}")
 
 #Send command to ESP32 with topic control
 def listener_pump(event):
@@ -83,7 +95,7 @@ TOPICS = [
 
 #Listen from ESP32 command
 def on_connect(client, userdata, flags, rc):
-    print("Đã kết nối HiveMQ. Đang nghe đủ 8 topic...")
+    print("Connected to HiveMQ, listening 8 topic...")
     for topic in TOPICS:
         client.subscribe(topic)
 
@@ -177,16 +189,26 @@ def on_message(client, userdata, msg):
     except Exception as e:
         print(f"Occurred error by {msg.topic}: {e}")
 
-# 3. Cấu hình MQTT
+MQTT_BROKER = os.getenv("MQTT_BROKER")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 8883))
+MQTT_USER = os.getenv("MQTT_USER")
+MQTT_PASS = os.getenv("MQTT_PASS")
+
 client = mqtt.Client()
-client.username_pw_set("Basys", "Basys1234")
+client.username_pw_set(MQTT_USER, MQTT_PASS)
 client.tls_set()
 client.on_connect = on_connect
 client.on_message = on_message
-client.connect("684def09438e405290520560dfa5acc9.s1.eu.hivemq.cloud", 8883)
+try:
+    logger.info("Connecting to MQTT Broker...")
+    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+except Exception as e:
+    logger.error(f"Failed to connect to MQTT Broker: {e}")
+    exit(1)
+
 client.loop_start()
-print("Bridge đang hoạt động. Nhấn Ctrl+C để dừng...")
-# Đăng ký lắng nghe các node điều khiển trên Firebase
+print("Bridge currently operating . Press Ctrl+C to stop...")
+
 db.reference('pump_control').listen(listener_pump)
 db.reference('mode_control').listen(listener_mode)
 db.reference('led_living_control').listen(listener_led_living)
@@ -195,8 +217,8 @@ db.reference('led_kitchen_control').listen(listener_led_kitchen)
 
 try:
     while True:
-        time.sleep(1) # Giữ cho script luôn chạy
+        time.sleep(1) 
 except KeyboardInterrupt:
-    print("Đang dừng Bridge...")
+    print("\nStopping Bridge...")
     client.disconnect()
     client.loop_stop()
